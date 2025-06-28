@@ -5,7 +5,7 @@
         {
           "name": "STLinkv2",
           "cwd": "${workspaceFolder}",
-          "executable": "out/Debug/sniffer/smbus-sniffer.elf",
+          "executable": "build/Debug/sniffer/smbus-sniffer.elf",
           "request": "launch",
           "type": "cortex-debug",
           "servertype": "stutil",
