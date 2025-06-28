@@ -1,0 +1,18 @@
+{
+    "$schema": "https://raw.githubusercontent.com/mfussenegger/dapconfig-schema/master/dapconfig-schema.json",
+    "version": "0.2.0",
+    "configurations": [
+        {
+          "name": "STLinkv2",
+          "cwd": "${workspaceFolder}",
+          "executable": "out/Debug/sniffer/smbus-sniffer.elf",
+          "request": "launch",
+          "type": "cortex-debug",
+          "servertype": "stutil",
+          "device": "STM32G070RB",
+          "interface": "swd",
+          "svdFile": "",
+          "runToEntryPoint": "main"
+        }
+    ]
+}
