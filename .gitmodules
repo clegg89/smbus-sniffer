@@ -1,0 +1,9 @@
+[submodule "sniffer/submodules/cmsis-core"]
+	path = sniffer/submodules/cmsis-core
+	url = https://github.com/STMicroelectronics/cmsis-core.git
+[submodule "sniffer/submodules/stm32g0xx-hal-driver"]
+	path = sniffer/submodules/stm32g0xx-hal-driver
+	url = https://github.com/STMicroelectronics/stm32g0xx-hal-driver.git
+[submodule "sniffer/submodules/cmsis-device-g0"]
+	path = sniffer/submodules/cmsis-device-g0
+	url = https://github.com/STMicroelectronics/cmsis-device-g0.git
