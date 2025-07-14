@@ -1,35 +1,12 @@
-/* USER CODE BEGIN Header */
-/**
-  ******************************************************************************
-  * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2025 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
-/* USER CODE END Header */
-/* Includes ------------------------------------------------------------------*/
-
-/* Private includes ----------------------------------------------------------*/
-/* USER CODE BEGIN Includes */
 #include "stm32g0xx_hal.h"
-/* USER CODE END Includes */
+#include "CircularBuffer.h"
+#include "I2cSniffer.h"
+#include "I2cSnifferProcessorAggregate.h"
+#include "I2cConexantDevice.h"
 
-/* Private typedef -----------------------------------------------------------*/
-/* USER CODE BEGIN PTD */
+#include <cstdint>
+#include <cstdio>
 
-/* USER CODE END PTD */
-
-/* Private define ------------------------------------------------------------*/
-/* USER CODE BEGIN PD */
 #define MCO_Pin GPIO_PIN_0
 #define MCO_GPIO_Port GPIOF
 #define LED_GREEN_Pin GPIO_PIN_5
@@ -38,33 +15,22 @@
 #define TMS_GPIO_Port GPIOA
 #define TCK_Pin GPIO_PIN_14
 #define TCK_GPIO_Port GPIOA
-/* USER CODE END PD */
 
-/* Private macro -------------------------------------------------------------*/
-/* USER CODE BEGIN PM */
+constexpr auto HEARTBEAT_PERIOD = 1000;
 
-/* USER CODE END PM */
+enum class I2C_BIT : uint8_t {
+  START,
+  STOP,
+  ONE,
+  ZERO
+};
 
-/* Private variables ---------------------------------------------------------*/
 I2C_HandleTypeDef hi2c2;
-
-/* USER CODE BEGIN PV */
-
-/* USER CODE END PV */
-
-/* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 void Error_Handler(void);
+static CircularBuffer<I2C_BIT, 300> gs_buffer;
 static void MX_GPIO_Init(void);
 static void MX_I2C2_Init(void);
-/* USER CODE BEGIN PFP */
-
-/* USER CODE END PFP */
-
-/* Private user code ---------------------------------------------------------*/
-/* USER CODE BEGIN 0 */
-
-/* USER CODE END 0 */
 
 /**
   * @brief  The application entry point.
@@ -72,44 +38,74 @@ static void MX_I2C2_Init(void);
   */
 int main(void)
 {
-
-  /* USER CODE BEGIN 1 */
-
-  /* USER CODE END 1 */
-
-  /* MCU Configuration--------------------------------------------------------*/
-
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
-
-  /* USER CODE BEGIN Init */
-
-  /* USER CODE END Init */
 
   /* Configure the system clock */
   SystemClock_Config();
 
-  /* USER CODE BEGIN SysInit */
-
-  /* USER CODE END SysInit */
-
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_I2C2_Init();
-  /* USER CODE BEGIN 2 */
 
-  /* USER CODE END 2 */
+  I2cConexantDevice conexant{};
+  I2cSnifferProcessorAggregate processor{};
+  I2cSniffer sniffer{processor};
 
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
+  processor.push(conexant);
+
+  uint32_t lastLedToggle = 0;
+
+  int bitsLeft = 0;
+  uint8_t pendingData = 0;
+
+  printf("Begin progranm\n");
+
   while (1)
   {
-    /* USER CODE END WHILE */
-    HAL_GPIO_TogglePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin);
-    HAL_Delay(100);
-    /* USER CODE BEGIN 3 */
+    // General flow: each SMBus operation is an address followed by any remaining data
+    // Up to the SMBus processor to determine what the additional data means
+    I2C_BIT nextBit;
+    if (gs_buffer.pop(nextBit)) {
+      switch(nextBit) {
+        case I2C_BIT::START:
+        {
+          bitsLeft = 9;
+          sniffer.start();
+          break;
+        }
+        case I2C_BIT::STOP:
+        {
+          sniffer.stop();
+          break;
+        }
+        case I2C_BIT::ONE:
+        case I2C_BIT::ZERO:
+        {
+          bitsLeft--;
+
+          if (bitsLeft == 0) {
+            // ACK bit
+            sniffer.push(pendingData, (nextBit == I2C_BIT::ONE));
+            // Next byte
+            bitsLeft = 9;
+          } else if (bitsLeft == 1 && !sniffer.isAddressSet()) {
+            // RW bit
+            sniffer.setRW(nextBit == I2C_BIT::ONE);
+          } else {
+            pendingData = (pendingData << 1) | (nextBit == I2C_BIT::ONE);
+          }
+          break;
+        }
+      }
+    }
+
+    if (HAL_GetTick() - lastLedToggle > HEARTBEAT_PERIOD) {
+      // Toggle the LED
+      HAL_GPIO_TogglePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin);
+      lastLedToggle = HAL_GetTick();
+    }
   }
-  /* USER CODE END 3 */
 }
 
 /**
@@ -159,14 +155,6 @@ void SystemClock_Config(void)
   */
 static void MX_I2C2_Init(void)
 {
-
-  /* USER CODE BEGIN I2C2_Init 0 */
-
-  /* USER CODE END I2C2_Init 0 */
-
-  /* USER CODE BEGIN I2C2_Init 1 */
-
-  /* USER CODE END I2C2_Init 1 */
   hi2c2.Instance = I2C2;
   hi2c2.Init.Timing = 0x00503D58;
   hi2c2.Init.OwnAddress1 = 0;
@@ -194,10 +182,6 @@ static void MX_I2C2_Init(void)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN I2C2_Init 2 */
-
-  /* USER CODE END I2C2_Init 2 */
-
 }
 
 /**
@@ -208,8 +192,6 @@ static void MX_I2C2_Init(void)
 static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
-/* USER CODE BEGIN MX_GPIO_Init_1 */
-/* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
@@ -234,18 +216,14 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(LED_GREEN_GPIO_Port, &GPIO_InitStruct);
-
-/* USER CODE BEGIN MX_GPIO_Init_2 */
-/* USER CODE END MX_GPIO_Init_2 */
 }
-
-/* USER CODE BEGIN 4 */
 
 void HAL_GPIO_EXTI_Falling_Callback(uint16_t GPIO_Pin)
 {
   if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_10))
   {
     // STOP condition
+    gs_buffer.push(I2C_BIT::STOP);
   }
 }
 
@@ -254,14 +232,14 @@ void HAL_GPIO_EXTI_Rising_Callback(uint16_t GPIO_Pin)
   if (GPIO_Pin == GPIO_PIN_10)
   {
     // Clock triggered, bit received
+    gs_buffer.push(HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_11) ? I2C_BIT::ONE : I2C_BIT::ZERO);
   }
   else
   {
     // START condition
+    gs_buffer.push(I2C_BIT::START);
   }
 }
-
-/* USER CODE END 4 */
 
 /**
   * @brief  This function is executed in case of error occurrence.
@@ -269,12 +247,9 @@ void HAL_GPIO_EXTI_Rising_Callback(uint16_t GPIO_Pin)
   */
 void Error_Handler(void)
 {
-  /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
   while (1)
   {
   }
-  /* USER CODE END Error_Handler_Debug */
 }
 
