@@ -1,6 +1,7 @@
 //! @file
 
 #include "I2cSniffer.h"
+#include <cstdio>
 
 void I2cSniffer::start() {
   address_ = 0;
@@ -23,5 +24,6 @@ void I2cSniffer::push(uint8_t incByte, bool ack) {
 }
 
 void I2cSniffer::stop() {
+	printf("a:0x%hhx", address_);
   processor_.process(address_, isRead_, {std::begin(dataBuffer_), position_});
 }

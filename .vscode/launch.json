@@ -1,18 +1,26 @@
 {
-    "$schema": "https://raw.githubusercontent.com/mfussenegger/dapconfig-schema/master/dapconfig-schema.json",
     "version": "0.2.0",
     "configurations": [
-        {
-          "name": "STLinkv2",
-          "cwd": "${workspaceFolder}",
-          "executable": "build/Debug/sniffer/smbus-sniffer.elf",
-          "request": "launch",
-          "type": "cortex-debug",
-          "servertype": "stutil",
-          "device": "STM32G070RB",
-          "interface": "swd",
-          "svdFile": "",
-          "runToEntryPoint": "main"
-        }
+		{
+			"type": "cortex-debug",
+			"request": "launch",
+			"name": "Launch Sniffer with OpenOCD (ST-Link)",
+			"cwd": "${workspaceFolder}",
+			"executable": "${workspaceFolder}/build/sniffer/smbus-sniffer.elf",
+			"preLaunchTask": "CMake: build",
+			"servertype": "openocd",
+			"configFiles": [
+				"${workspaceFolder}/debugging/STM32G070RBTx.cfg"
+			],
+			"device": "STM32G070RB",
+			"runToEntryPoint": "main",
+			"svdFile": "${workspaceFolder}/debugging/STM32G070.svd",
+			"showDevDebugOutput": "raw",
+			"swoConfig": {},
+			"liveWatch": {
+				"enabled": true,
+				"samplesPerSecond": 4
+			}
+		},
     ]
 }
