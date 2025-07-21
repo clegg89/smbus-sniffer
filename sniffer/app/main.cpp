@@ -1,44 +1,34 @@
 #include "stm32g0xx_hal.h"
-#include "CircularBuffer.h"
-#include "I2cSniffer.h"
-#include "I2cSnifferProcessorAggregate.h"
-#include "I2cConexantDevice.h"
+
+#include <array>
 
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 
-#define MCO_Pin GPIO_PIN_0
-#define MCO_GPIO_Port GPIOF
-#define LED_GREEN_Pin GPIO_PIN_5
-#define LED_GREEN_GPIO_Port GPIOA
-#define TMS_Pin GPIO_PIN_13
-#define TMS_GPIO_Port GPIOA
-#define TCK_Pin GPIO_PIN_14
-#define TCK_GPIO_Port GPIOA
+#define SCL_PIN GPIO_PIN_10
+#define SCL_PORT GPIOB
+#define SDA_PIN GPIO_PIN_11
+#define SDA_PORT GPIOB
 
-constexpr auto HEARTBEAT_PERIOD = 1000;
+static uint8_t buffer[7000];
+static uint16_t bufferPos = 0;
+static uint16_t bufferStart = 0;
 
-enum class I2C_BIT : uint8_t {
-  START,
-  STOP,
-  ONE,
-  ZERO
-};
+static size_t I2C_BUFFER_SIZE = std::size(buffer);
 
-I2C_HandleTypeDef hi2c2;
-UART_HandleTypeDef huart1;
-void SystemClock_Config(void);
+UART_HandleTypeDef huart2;
 void Error_Handler(void);
-static CircularBuffer<I2C_BIT, 300> gs_buffer;
+static void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_I2C2_Init(void);
-static void MX_USART1_UART_Init(void);
+static void MX_USART2_UART_Init(void);
 
 //Stdout print on UART for printf
-extern "C" int _write(int file, char *ptr, int len)
+extern "C" int __io_putchar(int ch)
 {
-    HAL_UART_Transmit(&huart1, (uint8_t *)ptr, len, 100);
-    return len;
+    HAL_UART_Transmit(&huart2, (uint8_t *)ch, 1, 0xFFFF);
+
+    return ch;
 }
 
 /**
@@ -55,66 +45,129 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_I2C2_Init();
-  MX_USART1_UART_Init();
+  MX_USART2_UART_Init();
 
-  I2cConexantDevice conexant{};
-  I2cSnifferProcessorAggregate processor{};
-  I2cSniffer sniffer{processor};
+  char ch = 'a';
+  HAL_UART_Transmit(&huart2, (uint8_t *)&ch, 1, 0xFFFF); // just transmit an 'a'
 
-  processor.push(conexant);
 
-  uint32_t lastLedToggle = 0;
+  printf("\r\n ** I2C Sniffer **\r\n");
+  printf("Key: \r\n");
+  printf("\e[32m Left [\e[39m: (re)START \r\n");
+  printf("\e[31mRight ]\e[39m:     STOP \r\n");
+  printf("\r\n");
+  printf("\e[36mCyan\e[39m: Address (hex) \r\n");
+  printf("\e[33m   R\e[39m:   Read from master \r\n");
+  printf("\e[33m   W\e[39m:  Write   to slave \r\n");
+  printf("\r\n");
+  printf("\e[39mWhite\e[39m: Data (hex) \r\n");
+  printf("\e[33m    A\e[39m:   ACK (acknowledged) \r\n");
+  printf("\e[33m    N\e[39m:  NACK (not acknowledged -- note: this is not an error) \r\n");
+  printf("\r\n Enjoy! \r\n\r\n");
 
-  int bitsLeft = 0;
-  uint8_t pendingData = 0;
+  // Too many variables!
+  int16_t dataLeft = 0; // The number of I2C bits left to process
+  uint8_t pendingData = 0; // The current byte being processed
+  uint8_t pendingACK = 0; // Whether we have received ACK for the current byte
+  uint8_t pendingRW = 0; // Whether a register is being Read
+  uint8_t pendingExists = 0; // Whether we need to print the data
+  uint8_t waitingForRegister = 0; // Whether we have received a (Re)start condition and are expecting a register address
+  uint8_t dump = 0; // Whether we are dumping data due to a TIMEOUT
 
-  printf("Begin progranm\r\n");
+  uint32_t oldTimer = HAL_GetTick();
 
+  setbuf(stdout, NULL); // Disable flushing; This might make the code slower, but makes sure everything is sent without
+  	  	  	  	  	  	// having to wait for a newline
   while (1)
   {
-    // General flow: each SMBus operation is an address followed by any remaining data
-    // Up to the SMBus processor to determine what the additional data means
-    I2C_BIT nextBit;
-    if (gs_buffer.pop(nextBit)) {
-      switch(nextBit) {
-        case I2C_BIT::START:
-        {
-          bitsLeft = 9;
-          sniffer.start();
-          break;
-        }
-        case I2C_BIT::STOP:
-        {
-          sniffer.stop();
-          break;
-        }
-        case I2C_BIT::ONE:
-        case I2C_BIT::ZERO:
-        {
-          bitsLeft--;
+	  if ((bufferPos - bufferStart + I2C_BUFFER_SIZE) % I2C_BUFFER_SIZE >= 1) { // positive modulo - distance left to cover
+		  if (buffer[bufferStart] == 'A') {
+			  // Start condition!!!
+			  printf("\e[32m[\e[39m");
+			  bufferStart = (bufferStart + 1) % I2C_BUFFER_SIZE;
 
-          if (bitsLeft == 0) {
-            // ACK bit
-            sniffer.push(pendingData, (nextBit == I2C_BIT::ONE));
-            // Next byte
-            bitsLeft = 9;
-          } else if (bitsLeft == 1 && !sniffer.isAddressSet()) {
-            // RW bit
-            sniffer.setRW(nextBit == I2C_BIT::ONE);
-          } else {
-            pendingData = (pendingData << 1) | (nextBit == I2C_BIT::ONE);
-          }
-          break;
-        }
-      }
-    }
+			  if (dataLeft > 0 && dataLeft < 8) {
+				  printf("ERROR! Not enough dat %d.\r\n", dataLeft);
+			  }
 
-    if (HAL_GetTick() - lastLedToggle > HEARTBEAT_PERIOD) {
-      // Toggle the LED
-      HAL_GPIO_TogglePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin);
-      lastLedToggle = HAL_GetTick();
-    }
+			  dataLeft = 9;
+			  pendingData = 0;
+			  waitingForRegister = 1;
+		  } else if (buffer[bufferStart] == 'B') {
+			  // Stop condition!!!
+			  printf("\e[31m]\e[39m\r\n");
+			  bufferStart = (bufferStart + 1) % I2C_BUFFER_SIZE;
+
+			  if (dataLeft > 0 && dataLeft < 8) {
+				  printf("ERROR! Not got enough dat.\r\n");
+				  dataLeft = 0;
+			  }
+			  pendingData = 0;
+		  } else {
+			  if (dataLeft <= 0) {
+				  printf("ERROR! Got data without start condition.\r\n");
+			  }
+			  if (dataLeft > 9) {
+				  printf("ERROR! Too much data expected\r\n");
+			  }
+
+			  dataLeft--;
+
+			  if (dataLeft == 0) {
+				  // Read ACK byte
+				  pendingACK = !buffer[bufferStart];
+				  pendingExists = 1;
+			  } else if (dataLeft == 1 && waitingForRegister) {
+				  // Read RW byte
+				  pendingRW = buffer[bufferStart];
+			  } else {
+				  // Read regular byte
+				  pendingData = pendingData << 1 | buffer[bufferStart];
+			  }
+
+			  // Increase the circular buffer position
+			  bufferStart = (bufferStart + 1) % I2C_BUFFER_SIZE;
+		  }
+	  }
+
+	  if (pendingExists) {
+		  // Print received data
+		  if (waitingForRegister) {
+			  printf("\e[36m%2x", pendingData);
+		  } else {
+			  printf("\e[39m%2x", pendingData);
+		  }
+		  printf("\e[33m");
+		  if (waitingForRegister) {
+			  putchar(pendingRW ? 'R' : 'W');
+			  waitingForRegister = 0;
+		  }
+		  putchar(pendingACK ? 'A' : 'N');
+
+		  // Reset all the values
+		  pendingExists = 0;
+		  pendingData = 0;
+		  dataLeft = 9;
+
+		  oldTimer = HAL_GetTick();
+
+		  printf("\e[39m");
+
+		  if (dump) {
+			  printf("\r\n");
+			  dump = 0;
+		  }
+	  }
+
+	  if (HAL_GetTick() - oldTimer > 1500) {
+		  printf("\r\nNo data found (TIMEOUT), dumping information...\r\n");
+		  printf("Received data: 0x%X, %d bits\r\n", pendingData, 9 - dataLeft);
+
+		  printf("SCL line: %s\e[39m\r\n", HAL_GPIO_ReadPin(SCL_PORT, SCL_PIN) ? "\e[32mHI" : "\e[31mLO");
+		  printf("SDA line: %s\e[39m\r\n", HAL_GPIO_ReadPin(SDA_PORT, SDA_PIN) ? "\e[32mHI" : "\e[31mLO");
+
+		  pendingExists = dump = 1;
+	  }
   }
 }
 
@@ -124,7 +177,7 @@ int main(void)
   */
 void SystemClock_Config(void)
 {
-  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
   /** Configure the main internal regulator output voltage
@@ -164,42 +217,6 @@ void SystemClock_Config(void)
 }
 
 /**
-  * @brief I2C2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_I2C2_Init(void)
-{
-  hi2c2.Instance = I2C2;
-  hi2c2.Init.Timing = 0x00503D58;
-  hi2c2.Init.OwnAddress1 = 0;
-  hi2c2.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-  hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
-  hi2c2.Init.OwnAddress2 = 0;
-  hi2c2.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
-  hi2c2.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-  hi2c2.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-  if (HAL_I2C_Init(&hi2c2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure Analogue filter
-  */
-  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c2, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure Digital filter
-  */
-  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c2, 0) != HAL_OK)
-  {
-    Error_Handler();
-  }
-}
-
-/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -214,23 +231,18 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pins : PA2 PA3 */
-  GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_3;
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+  GPIO_InitStruct.Pin = SCL_PIN;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  GPIO_InitStruct.Alternate = GPIO_AF1_USART2;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  HAL_GPIO_Init(SCL_PORT, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : LED_GREEN_Pin */
-  GPIO_InitStruct.Pin = LED_GREEN_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pin = SDA_PIN;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-  HAL_GPIO_Init(LED_GREEN_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(SDA_PORT, &GPIO_InitStruct);
+
+  HAL_NVIC_SetPriority(EXTI4_15_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI4_15_IRQn);
 }
 
 /**
@@ -238,7 +250,7 @@ static void MX_GPIO_Init(void)
   * @param None
   * @retval None
   */
-static void MX_USART1_UART_Init(void)
+static void MX_USART2_UART_Init(void)
 {
 
   /* USER CODE BEGIN USART1_Init 0 */
@@ -248,30 +260,30 @@ static void MX_USART1_UART_Init(void)
   /* USER CODE BEGIN USART1_Init 1 */
 
   /* USER CODE END USART1_Init 1 */
-  huart1.Instance = USART1;
-  huart1.Init.BaudRate = 9600;
-  huart1.Init.WordLength = UART_WORDLENGTH_8B;
-  huart1.Init.StopBits = UART_STOPBITS_1;
-  huart1.Init.Parity = UART_PARITY_NONE;
-  huart1.Init.Mode = UART_MODE_TX;
-  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-  huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-  huart1.Init.ClockPrescaler = UART_PRESCALER_DIV1;
-  huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-  if (HAL_UART_Init(&huart1) != HAL_OK)
+  huart2.Instance = USART2;
+  huart2.Init.BaudRate = 115200;
+  huart2.Init.WordLength = UART_WORDLENGTH_8B;
+  huart2.Init.StopBits = UART_STOPBITS_1;
+  huart2.Init.Parity = UART_PARITY_NONE;
+  huart2.Init.Mode = UART_MODE_TX_RX;
+  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart2.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+  huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart2) != HAL_OK)
   {
     Error_Handler();
   }
-  if (HAL_UARTEx_SetTxFifoThreshold(&huart1, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
+  if (HAL_UARTEx_SetTxFifoThreshold(&huart2, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
   {
     Error_Handler();
   }
-  if (HAL_UARTEx_SetRxFifoThreshold(&huart1, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
+  if (HAL_UARTEx_SetRxFifoThreshold(&huart2, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
   {
     Error_Handler();
   }
-  if (HAL_UARTEx_DisableFifoMode(&huart1) != HAL_OK)
+  if (HAL_UARTEx_DisableFifoMode(&huart2) != HAL_OK)
   {
     Error_Handler();
   }
@@ -283,24 +295,45 @@ static void MX_USART1_UART_Init(void)
 
 void HAL_GPIO_EXTI_Falling_Callback(uint16_t GPIO_Pin)
 {
-  if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_10))
+  // Only SDA triggers on Falling
+  if (HAL_GPIO_ReadPin(SCL_PORT, SCL_PIN))
   {
-    // STOP condition
-    gs_buffer.push(I2C_BIT::STOP);
+    // START condition: SDA went low while SCL high
+	buffer[bufferPos] = 'A';
   }
+  // Don't care
 }
 
 void HAL_GPIO_EXTI_Rising_Callback(uint16_t GPIO_Pin)
 {
-  if (GPIO_Pin == GPIO_PIN_10)
+  uint8_t datum;
+
+  if (GPIO_Pin == SCL_PIN)
   {
     // Clock triggered, bit received
-    gs_buffer.push(HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_11) ? I2C_BIT::ONE : I2C_BIT::ZERO);
+    datum = HAL_GPIO_ReadPin(SDA_PORT, SDA_PIN);
+  }
+  else if (HAL_GPIO_ReadPin(SCL_PORT, SCL_PIN))
+  {
+    // STOP condition: SDA went high while SCL high
+	datum = 'B';
+
+	bufferPos = (bufferPos + 1) % 7000;
+	if (bufferPos == bufferStart) {
+		printf("ERROR! I2C buffer too small!\r\n");
+	}
   }
   else
   {
-    // START condition
-    gs_buffer.push(I2C_BIT::START);
+    // else nothing interesting
+	return;
+  }
+
+  buffer[bufferPos] = datum;
+
+  bufferPos = (bufferPos + 1) % 7000;
+  if (bufferPos == bufferStart) {
+	printf("ERROR! I2C buffer too small!\r\n");
   }
 }
 

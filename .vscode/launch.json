@@ -4,6 +4,24 @@
 		{
 			"type": "cortex-debug",
 			"request": "launch",
+			"name": "Launch Sniffer with STM32CubeIDE (ST-Link)",
+			"cwd": "${workspaceFolder}",
+			"executable": "${workspaceFolder}/build/sniffer/smbus-sniffer.elf",
+			"preLaunchTask": "CMake: build",
+			"servertype": "stlink",
+			"device": "STM32G070RB",
+			"interface": "swd",
+			"runToEntryPoint": "main",
+			"svdFile": "${workspaceFolder}/debugging/STM32G070.svd",
+			"swoConfig": {}, // Currently not implemented
+			"liveWatch": {
+				"enabled": true,
+				"samplesPerSecond": 4
+			}
+		},
+		{
+			"type": "cortex-debug",
+			"request": "launch",
 			"name": "Launch Sniffer with OpenOCD (ST-Link)",
 			"cwd": "${workspaceFolder}",
 			"executable": "${workspaceFolder}/build/sniffer/smbus-sniffer.elf",
