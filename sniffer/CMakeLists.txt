@@ -4,8 +4,6 @@ set(APP_NAME smbus-sniffer)
 
 add_executable(${APP_NAME})
 
-target_compile_options(${APP_NAME} PRIVATE -g3)
-
 set_target_properties(${APP_NAME}
   PROPERTIES
     C_STANDARD 23

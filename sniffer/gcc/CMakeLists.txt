@@ -1,8 +1,12 @@
+target_compile_options(${APP_NAME} PRIVATE -O3)
+
 target_sources(${APP_NAME} PRIVATE "${CMAKE_CURRENT_LIST_DIR}/startup_stm32g070xx.s")
 
 target_link_options(${APP_NAME} PRIVATE
   -T "${CMAKE_CURRENT_LIST_DIR}/stm32g070rbtx_flash.ld"
   -Wl,-Map "$<TARGET_FILE_DIR:${APP_NAME}>/${APP_NAME}.map"
+  --specs=nano.specs
+  --specs=nosys.specs
 )
 
 # Force re-link if linker script changes

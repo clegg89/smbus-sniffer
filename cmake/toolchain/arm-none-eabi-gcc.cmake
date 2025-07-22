@@ -53,5 +53,14 @@ add_compile_options(
 )
 
 add_link_options(
-  -Wl,--gc-sections
+  -Wl,--gc-sections,--relax
+  -Wl,--print-memory-usage
+  $<$<COMPILE_LANGUAGE:C>:-Wl,--start-group>
+    $<$<COMPILE_LANGUAGE:C>:-lc>
+    $<$<COMPILE_LANGUAGE:C>:-lm>
+  $<$<COMPILE_LANGUAGE:C>:-Wl,--end-group>
+  $<$<COMPILE_LANGUAGE:C>:-Wl,--start-group>
+    $<$<COMPILE_LANGUAGE:C>:-lstdc++>
+    $<$<COMPILE_LANGUAGE:C>:-lsupc++>
+  $<$<COMPILE_LANGUAGE:C>:-Wl,--end-group>
 )
