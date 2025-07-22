@@ -70,6 +70,12 @@ static void MX_USART1_UART_Init(void);
 
 /* USER CODE BEGIN 0 */
 
+int _write(int file, char *ptr, int len)
+{
+	HAL_UART_Transmit(&huart1, (uint8_t*)ptr, len, 0xffff);
+	return len;
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -262,9 +268,9 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
   RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV1;
-  RCC_OscInitStruct.PLL.PLLN = 8;
+  RCC_OscInitStruct.PLL.PLLN = 12;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-  RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
+  RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV4;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -301,7 +307,10 @@ static void MX_USART1_UART_Init(void)
   {
     _Error_Handler(__FILE__, __LINE__);
   }
-
+  if (HAL_UARTEx_EnableFifoMode(&huart1) != HAL_OK)
+  {
+	_Error_Handler(__FILE__, __LINE__);
+  }
 }
 
 /** Configure pins as
@@ -359,49 +368,37 @@ PUTCHAR_PROTOTYPE
   return ch;
 }
 
+static void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+	uint8_t datum;
+
+	if (GPIO_Pin == SCL_IT_Pin) {
+		// Clock triggered; bit received
+		datum = HAL_GPIO_ReadPin(SDA_GPIO_Port, SDA_Pin);
+	} else if (HAL_GPIO_ReadPin(SCL_GPIO_Port, SCL_Pin)) { // SDA pin necessarily
+		// START or STOP condition
+		// A for START, B for STOP
+		datum = HAL_GPIO_ReadPin(SDA_IT_GPIO_Port, SDA_IT_Pin) ? 'B' : 'A';
+	} else {
+		// Nothing interesting here...
+		return;
+	}
+
+	buffer[bufferPos] = datum; // Store the received bit in the buffer
+
+	bufferPos = (bufferPos + 1) % I2C_BUFFER_SIZE;
+	if (bufferPos == bufferStart) printf("ERROR! I2C buffer too small!\r\n"); // Buffer overflow!
+}
+
 void HAL_GPIO_EXTI_Falling_Callback(uint16_t GPIO_Pin)
 {
-  // Only SDA triggers on Falling
-  if (HAL_GPIO_ReadPin(SCL_GPIO_Port, SCL_Pin))
-  {
-    // START condition: SDA went low while SCL high
-	buffer[bufferPos] = 'B';
-
-	bufferPos = (bufferPos + 1) % 7000;
-	if (bufferPos == bufferStart) {
-		printf("ERROR! I2C buffer too small!\r\n");
-	}
-  }
-  // Don't care
+  HAL_GPIO_EXTI_Callback(GPIO_Pin);
 }
 
 void HAL_GPIO_EXTI_Rising_Callback(uint16_t GPIO_Pin)
 {
-  uint8_t datum;
-
-  if (GPIO_Pin == SCL_Pin)
-  {
-    // Clock triggered, bit received
-    datum = HAL_GPIO_ReadPin(SDA_GPIO_Port, SDA_Pin);
-  }
-  else if (HAL_GPIO_ReadPin(SCL_GPIO_Port, SCL_Pin))
-  {
-    // STOP condition: SDA went high while SCL high
-	datum = 'A';
-  }
-  else
-  {
-    // else nothing interesting
-	return;
-  }
-
-  buffer[bufferPos] = datum;
-
-  bufferPos = (bufferPos + 1) % 7000;
-  if (bufferPos == bufferStart) {
-	printf("ERROR! I2C buffer too small!\r\n");
-  }
+  HAL_GPIO_EXTI_Callback(GPIO_Pin);
 }
+
 /* USER CODE END 4 */
 
 /**
