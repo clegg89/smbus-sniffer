@@ -19,9 +19,12 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32g0xx_hal.h"
+#include "stm32g0xx_hal_gpio.h"
 #include "stm32g0xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "buffer.h"
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -140,12 +143,58 @@ void SysTick_Handler(void)
 /* please refer to the startup file (startup_stm32g0xx.s).                    */
 /******************************************************************************/
 
-/* USER CODE BEGIN 1 */
+	/* USER CODE BEGIN 1 */
 
 void EXTI4_15_IRQHandler(void)
 {
-  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_10);
-  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_11);
+	uint8_t datum = 0;
+    GPIOC->BSRR = (uint32_t)GPIO_PIN_13;
+
+	if (__HAL_GPIO_EXTI_GET_RISING_IT(GPIO_PIN_10) != 0x00u)
+	{
+		// SCL only configured for rising, and means data should be read
+		__HAL_GPIO_EXTI_CLEAR_RISING_IT(GPIO_PIN_10);
+		datum = ((GPIOB->IDR & GPIO_PIN_11) != 0x00);
+	}
+	// Not setup for scl falling
+
+	// In case we got both
+	if (__HAL_GPIO_EXTI_GET_RISING_IT(GPIO_PIN_11) != 0x00u)
+	{
+		__HAL_GPIO_EXTI_CLEAR_RISING_IT(GPIO_PIN_11);
+		if ((GPIOB->IDR & GPIO_PIN_10) == 0)
+		{
+			// Nothing interesting
+			goto exit;
+		}
+
+		datum = 'A'; // stop
+	}
+
+	if (__HAL_GPIO_EXTI_GET_FALLING_IT(GPIO_PIN_11) != 0x00u)
+	{
+		// Falling
+		__HAL_GPIO_EXTI_CLEAR_FALLING_IT(GPIO_PIN_11);
+		if ((GPIOB->IDR & GPIO_PIN_10) == 0)
+		{
+			// Nothing interesting
+			goto exit;
+		}
+
+		datum = 'B'; // start
+	}
+
+	buffer[bufferPos] = datum; // Store the received bit in the buffer
+
+	if (++bufferPos >= I2C_BUFFER_SIZE)
+	{
+		bufferPos = 0;
+	}
+	// if (bufferPos == bufferStart) printf("ERROR! I2C buffer too small!\r\n"); // Buffer overflow!
+  // HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_10);
+  // HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_11);
+exit:
+    GPIOC->BRR = (uint32_t)GPIO_PIN_13;
 }
 
 /* USER CODE END 1 */

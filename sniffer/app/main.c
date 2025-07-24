@@ -47,6 +47,9 @@
 
 /* Private variables ---------------------------------------------------------*/
 UART_HandleTypeDef huart1;
+uint16_t buffer[I2C_BUFFER_SIZE];
+uint16_t bufferPos = 0;   // the current writing position inside the buffer
+uint16_t bufferStart = 0; // the current reading position inside the buffer
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
@@ -289,6 +292,7 @@ void SystemClock_Config(void)
     Error_Handler();
   }
 
+//   HAL_RCC_MCOConfig(RCC_MCO1, RCC_MCO1SOURCE_SYSCLK, RCC_MCODIV_1);
 }
 
 /* USART1 init function */
@@ -337,8 +341,16 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin : PC13 */
   GPIO_InitStruct.Pin = GPIO_PIN_13;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+//   /*Configure GPIO pin : PA8 */
+//   GPIO_InitStruct.Pin = GPIO_PIN_8;
+//   GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+//   GPIO_InitStruct.Pull = GPIO_NOPULL;
+//   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+//   GPIO_InitStruct.Alternate = GPIO_AF0_MCO;
+//   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : SCL_IT_Pin */
   GPIO_InitStruct.Pin = SCL_IT_Pin;
