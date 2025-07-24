@@ -147,14 +147,36 @@ void SysTick_Handler(void)
 
 void EXTI4_15_IRQHandler(void)
 {
-	uint8_t datum = 0;
+	static uint16_t pendingData = 0;
+	static int dataLeft = -1;
     GPIOC->BSRR = (uint32_t)GPIO_PIN_13;
 
 	if (__HAL_GPIO_EXTI_GET_RISING_IT(GPIO_PIN_10) != 0x00u)
 	{
 		// SCL only configured for rising, and means data should be read
 		__HAL_GPIO_EXTI_CLEAR_RISING_IT(GPIO_PIN_10);
-		datum = ((GPIOB->IDR & GPIO_PIN_11) != 0x00);
+		if (dataLeft < -1)
+		{
+			goto exit;
+		}
+
+		int sdaValue = ((GPIOB->IDR & GPIO_PIN_11) != 0x00);
+
+		if (dataLeft == 0)
+		{
+			// ACK/NACK bit
+			if (sdaValue)
+			{
+				pendingData |= 0x100;
+			}
+
+			goto exit;
+		}
+
+		dataLeft--;
+
+		pendingData <<= 1;
+		pendingData |= sdaValue;
 	} // Unlikely to get both at once, optimize to exit faster
 	else if (__HAL_GPIO_EXTI_GET_RISING_IT(GPIO_PIN_11) != 0x00u)
 	{
@@ -165,7 +187,19 @@ void EXTI4_15_IRQHandler(void)
 			goto exit;
 		}
 
-		datum = 'A'; // stop
+		// STOP
+		if (dataLeft < 0) {
+			goto exit; // never got a start condition, ignore
+		}
+		pendingData |= 0x200;
+		dataLeft = -1;
+
+		buffer[bufferPos] = pendingData;
+		if (++bufferPos >= I2C_BUFFER_SIZE)
+		{
+			bufferPos = 0;
+		}
+		pendingData = 0;
 	}
 	else // Assume falling SDA (only thing left)
 	{
@@ -177,15 +211,11 @@ void EXTI4_15_IRQHandler(void)
 			goto exit;
 		}
 
-		datum = 'B'; // start
+		// START
+		dataLeft = 9;
+		pendingData = 0x400;
 	}
 
-	buffer[bufferPos] = datum; // Store the received bit in the buffer
-
-	if (++bufferPos >= I2C_BUFFER_SIZE)
-	{
-		bufferPos = 0;
-	}
 	// if (bufferPos == bufferStart) printf("ERROR! I2C buffer too small!\r\n"); // Buffer overflow!
   // HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_10);
   // HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_11);

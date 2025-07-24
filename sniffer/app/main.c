@@ -131,16 +131,9 @@ int main(void)
   printf("\e[33m    N\e[39m:  NACK (not acknowledged -- note: this is not an error) \r\n");
   printf("\r\n Enjoy! \r\n\r\n");
 
-  // Too many variables!
-  int16_t dataLeft = 0; // The number of I2C bits left to process
-  uint8_t pendingData = 0; // The current byte being processed
-  uint8_t pendingACK = 0; // Whether we have received ACK for the current byte
-  uint8_t pendingRW = 0; // Whether a register is being Read
-  uint8_t pendingExists = 0; // Whether we need to print the data
-  uint8_t waitingForRegister = 0; // Whether we have received a (Re)start condition and are expecting a register address
-  uint8_t dump = 0; // Whether we are dumping data due to a TIMEOUT
+//   bool filter = 0;
 
-  uint32_t oldTimer = HAL_GetTick();
+//   uint32_t oldTimer = HAL_GetTick();
 
   setbuf(stdout, NULL); // Disable flushing; This might make the code slower, but makes sure everything is sent without
   	  	  	  	  	  	// having to wait for a newline
@@ -148,102 +141,36 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
-  {
-	  if ((bufferPos - bufferStart + I2C_BUFFER_SIZE) % I2C_BUFFER_SIZE >= 1) { // positive modulo - distance left to cover
-		  if (buffer[bufferStart] == 'A') {
-			  // Start condition!!!
-			  printf("\e[32m[\e[39m");
-			  bufferStart = (bufferStart + 1) % I2C_BUFFER_SIZE;
+	while (1)
+	{
+		if ((bufferPos - bufferStart + I2C_BUFFER_SIZE) % I2C_BUFFER_SIZE >= 1) { // positive modulo - distance left to cover
+			uint8_t data = buffer[bufferStart] & 0xFF;
+			bool isStart = buffer[bufferStart] & 0x400;
+			bool isStop = buffer[bufferStart] & 0x200;
+			bool isAcked = buffer[bufferStart] & 0x100;
+			bufferStart = (bufferStart + 1) % I2C_BUFFER_SIZE;
+			if (isStart && isStop) {
+				printf("\r\nERROR! Start and Stop on same byte\r\n");
+				continue;
+			}
 
-			  if (dataLeft > 0 && dataLeft < 8) {
-				  printf("ERROR! Not enough dat %d.\r\n", dataLeft);
-			  }
+			// if (isStart) {
+			// 	bool isRead = (data & 0x01);
+			// 	// uint8_t address = (data & 0xfe);
+			// 	filter = isRead;// || (address != 0x8a && address != 0xd4 && address != 0xe0);
+			// } else if (isStop) {
+			if (isStop) {
+				// if (!filter) {
+					printf("\r\n");
+				// }
+			}
 
-			  dataLeft = 9;
-			  pendingData = 0;
-			  waitingForRegister = 1;
-		  } else if (buffer[bufferStart] == 'B') {
-			  // Stop condition!!!
-			  printf("\e[31m]\e[39m\r\n");
-			  bufferStart = (bufferStart + 1) % I2C_BUFFER_SIZE;
-
-			  if (dataLeft > 0 && dataLeft < 8) {
-				  printf("ERROR! Not got enough dat.\r\n");
-				  dataLeft = 0;
-			  }
-			  pendingData = 0;
-		  } else {
-			  if (dataLeft <= 0) {
-				  printf("ERROR! Got data without start condition.\r\n");
-			  }
-			  if (dataLeft > 9) {
-				  printf("ERROR! Too much data expected\r\n");
-			  }
-
-			  dataLeft--;
-
-			  if (dataLeft == 0) {
-				  // Read ACK byte
-				  pendingACK = !buffer[bufferStart];
-				  pendingExists = 1;
-			  } else if (dataLeft == 1 && waitingForRegister) {
-				  // Read RW byte
-				  pendingRW = buffer[bufferStart];
-			  } else {
-				  // Read regular byte
-				  pendingData = pendingData << 1 | buffer[bufferStart];
-			  }
-
-			  // Increase the circular buffer position
-			  bufferStart = (bufferStart + 1) % I2C_BUFFER_SIZE;
-		  }
-	  }
-
-	  if (pendingExists) {
-		  // Print received data
-		  if (waitingForRegister) {
-			  printf("\e[36m%2x", pendingData);
-		  } else {
-			  printf("\e[39m%2x", pendingData);
-		  }
-		  printf("\e[33m");
-		  if (waitingForRegister) {
-			  putchar(pendingRW ? 'R' : 'W');
-			  waitingForRegister = 0;
-		  }
-		  putchar(pendingACK ? 'A' : 'N');
-
-		  // Reset all the values
-		  pendingExists = 0;
-		  pendingData = 0;
-		  dataLeft = 9;
-
-		  oldTimer = HAL_GetTick();
-
-		  printf("\e[39m");
-
-		  if (dump) {
-			  printf("\r\n");
-			  dump = 0;
-		  }
-	  }
-
-	  if (HAL_GetTick() - oldTimer > 1500) {
-		  printf("\r\nNo data found (TIMEOUT), dumping information...\r\n");
-		  printf("Received data: 0x%X, %d bits\r\n", pendingData, 9 - dataLeft);
-
-		  printf("SCL line: %s\e[39m\r\n", HAL_GPIO_ReadPin(SCL_GPIO_Port, SCL_Pin) ? "\e[32mHI" : "\e[31mLO");
-		  printf("SDA line: %s\e[39m\r\n", HAL_GPIO_ReadPin(SDA_GPIO_Port, SDA_Pin) ? "\e[32mHI" : "\e[31mLO");
-
-		  pendingExists = dump = 1;
-	  }
-
-  /* USER CODE END WHILE */
-
-  /* USER CODE BEGIN 3 */
-
-  }
+			// if (!filter)
+			// {
+				printf("%hhx%c", data, isAcked ? 'a' : 'n');
+			// }
+		}
+	}
   /* USER CODE END 3 */
 
 }
