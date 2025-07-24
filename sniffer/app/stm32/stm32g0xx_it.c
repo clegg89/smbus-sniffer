@@ -155,11 +155,8 @@ void EXTI4_15_IRQHandler(void)
 		// SCL only configured for rising, and means data should be read
 		__HAL_GPIO_EXTI_CLEAR_RISING_IT(GPIO_PIN_10);
 		datum = ((GPIOB->IDR & GPIO_PIN_11) != 0x00);
-	}
-	// Not setup for scl falling
-
-	// In case we got both
-	if (__HAL_GPIO_EXTI_GET_RISING_IT(GPIO_PIN_11) != 0x00u)
+	} // Unlikely to get both at once, optimize to exit faster
+	else if (__HAL_GPIO_EXTI_GET_RISING_IT(GPIO_PIN_11) != 0x00u)
 	{
 		__HAL_GPIO_EXTI_CLEAR_RISING_IT(GPIO_PIN_11);
 		if ((GPIOB->IDR & GPIO_PIN_10) == 0)
@@ -170,8 +167,7 @@ void EXTI4_15_IRQHandler(void)
 
 		datum = 'A'; // stop
 	}
-
-	if (__HAL_GPIO_EXTI_GET_FALLING_IT(GPIO_PIN_11) != 0x00u)
+	else // Assume falling SDA (only thing left)
 	{
 		// Falling
 		__HAL_GPIO_EXTI_CLEAR_FALLING_IT(GPIO_PIN_11);
