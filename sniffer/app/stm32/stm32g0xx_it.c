@@ -165,10 +165,10 @@ void EXTI4_15_IRQHandler(void)
 			goto exit;
 		}
 
-		datum = 'A'; // stop
+		datum = 'B'; // stop
 	}
 	else // Assume falling SDA (only thing left)
-	{
+	{ 
 		// Falling
 		__HAL_GPIO_EXTI_CLEAR_FALLING_IT(GPIO_PIN_11);
 		if ((GPIOB->IDR & GPIO_PIN_10) == 0)
@@ -177,7 +177,7 @@ void EXTI4_15_IRQHandler(void)
 			goto exit;
 		}
 
-		datum = 'B'; // start
+		datum = 'A'; // start
 	}
 
 	buffer[bufferPos] = datum; // Store the received bit in the buffer
