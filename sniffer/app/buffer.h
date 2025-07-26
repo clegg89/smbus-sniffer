@@ -20,7 +20,7 @@
  * Bit 10 == START
  * Bit 11-15 Reserved
  */
-#define I2C_BUFFER_SIZE 1024
+#define I2C_BUFFER_SIZE 512
 extern volatile uint16_t buffer[I2C_BUFFER_SIZE];
 extern volatile uint16_t bufferPos;   // the current writing position inside the buffer
 extern volatile uint16_t bufferStart; // the current reading position inside the buffer
