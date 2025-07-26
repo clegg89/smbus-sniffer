@@ -145,61 +145,53 @@ void SysTick_Handler(void)
 
 	/* USER CODE BEGIN 1 */
 
+static void pushWord(uint16_t data)
+{
+  buffer[bufferPos] = data;
+  if (++bufferPos >= I2C_BUFFER_SIZE)
+  {
+    bufferPos = 0;
+  }
+if (bufferPos == bufferStart) printf("ERROR! I2C buffer too small!\r\n"); // Buffer overflow!
+}
+
 void EXTI4_15_IRQHandler(void)
 {
 	static uint16_t pendingData = 0;
-	static int dataLeft = -1;
+	static int dataLeft = 1;
     GPIOC->BSRR = (uint32_t)GPIO_PIN_13;
 
 	if (__HAL_GPIO_EXTI_GET_RISING_IT(GPIO_PIN_10) != 0x00u)
 	{
 		// SCL only configured for rising, and means data should be read
 		__HAL_GPIO_EXTI_CLEAR_RISING_IT(GPIO_PIN_10);
-		if (dataLeft < -1)
-		{
-			goto exit;
-		}
-
-		int sdaValue = ((GPIOB->IDR & GPIO_PIN_11) != 0x00);
-
-		if (dataLeft == 0)
-		{
-			// ACK/NACK bit
-			if (sdaValue)
-			{
-				pendingData |= 0x100;
-			}
-
-			goto exit;
-		}
 
 		dataLeft--;
 
 		pendingData <<= 1;
-		pendingData |= sdaValue;
+		pendingData |= ((GPIOB->IDR & GPIO_PIN_11) != 0x00);
+
+		if (dataLeft == 0)
+		{
+			// Done collecting data, send it off and start again
+      pushWord(pendingData);
+
+			// Start fresh
+			pendingData = 0;
+			dataLeft = 9;
+		}
 	} // Unlikely to get both at once, optimize to exit faster
 	else if (__HAL_GPIO_EXTI_GET_RISING_IT(GPIO_PIN_11) != 0x00u)
 	{
 		__HAL_GPIO_EXTI_CLEAR_RISING_IT(GPIO_PIN_11);
-		if ((GPIOB->IDR & GPIO_PIN_10) == 0)
+		if (((GPIOB->IDR & GPIO_PIN_10) == 0))
 		{
 			// Nothing interesting
 			goto exit;
 		}
 
 		// STOP
-		if (dataLeft < 0) {
-			goto exit; // never got a start condition, ignore
-		}
-		pendingData |= 0x200;
-		dataLeft = -1;
-
-		buffer[bufferPos] = pendingData;
-		if (++bufferPos >= I2C_BUFFER_SIZE)
-		{
-			bufferPos = 0;
-		}
-		pendingData = 0;
+    pushWord(0x200);
 	}
 	else // Assume falling SDA (only thing left)
 	{
@@ -212,13 +204,13 @@ void EXTI4_15_IRQHandler(void)
 		}
 
 		// START
+    pushWord(0x400);
+
+    // Start reading data
 		dataLeft = 9;
-		pendingData = 0x400;
+		pendingData = 0;
 	}
 
-	// if (bufferPos == bufferStart) printf("ERROR! I2C buffer too small!\r\n"); // Buffer overflow!
-  // HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_10);
-  // HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_11);
 exit:
     GPIOC->BRR = (uint32_t)GPIO_PIN_13;
 }

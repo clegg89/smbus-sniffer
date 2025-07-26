@@ -47,9 +47,9 @@
 
 /* Private variables ---------------------------------------------------------*/
 UART_HandleTypeDef huart1;
-uint16_t buffer[I2C_BUFFER_SIZE];
-uint16_t bufferPos = 0;   // the current writing position inside the buffer
-uint16_t bufferStart = 0; // the current reading position inside the buffer
+volatile uint16_t buffer[I2C_BUFFER_SIZE];
+volatile uint16_t bufferPos = 0;   // the current writing position inside the buffer
+volatile uint16_t bufferStart = 0; // the current reading position inside the buffer
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
@@ -131,7 +131,8 @@ int main(void)
   printf("\e[33m    N\e[39m:  NACK (not acknowledged -- note: this is not an error) \r\n");
   printf("\r\n Enjoy! \r\n\r\n");
 
-//   bool filter = 0;
+  bool filter = true;
+  bool isStart = false;
 
 //   uint32_t oldTimer = HAL_GetTick();
 
@@ -143,32 +144,46 @@ int main(void)
   /* USER CODE BEGIN WHILE */
 	while (1)
 	{
-		if ((bufferPos - bufferStart + I2C_BUFFER_SIZE) % I2C_BUFFER_SIZE >= 1) { // positive modulo - distance left to cover
-			uint8_t data = buffer[bufferStart] & 0xFF;
-			bool isStart = buffer[bufferStart] & 0x400;
-			bool isStop = buffer[bufferStart] & 0x200;
-			bool isAcked = buffer[bufferStart] & 0x100;
-			bufferStart = (bufferStart + 1) % I2C_BUFFER_SIZE;
-			if (isStart && isStop) {
-				printf("\r\nERROR! Start and Stop on same byte\r\n");
-				continue;
+		if (bufferPos != bufferStart) { // positive modulo - distance left to cover
+			uint8_t data = (buffer[bufferStart] >> 1) & 0x00ff;
+			bool start_evt = buffer[bufferStart] & 0x0400;
+			bool stop_evt = buffer[bufferStart] & 0x0200;
+			char isAcked = (buffer[bufferStart] & 0x0001) ? 'n' : 'a';
+			if (++bufferStart >= I2C_BUFFER_SIZE) {
+				bufferStart = 0;
 			}
 
-			// if (isStart) {
-			// 	bool isRead = (data & 0x01);
-			// 	// uint8_t address = (data & 0xfe);
-			// 	filter = isRead;// || (address != 0x8a && address != 0xd4 && address != 0xe0);
-			// } else if (isStop) {
-			if (isStop) {
-				// if (!filter) {
+			if (start_evt)
+			{
+				isStart = true;
+				filter = false;
+			}
+			else if (stop_evt)
+			{
+				if (!filter)
+				{
 					printf("\r\n");
-				// }
+				}
 			}
-
-			// if (!filter)
-			// {
-				printf("%hhx%c", data, isAcked ? 'a' : 'n');
-			// }
+			else
+			{
+				if (isStart)
+				{
+					bool isRead = (data & 0x01);
+					uint8_t address = (data & 0xfe);
+					filter = isRead || (address != 0x8a && address != 0xd4 && address != 0xe0);
+					isStart = false;
+					printf("\e[36m");
+				}
+				else
+				{
+					printf("\e[39m");
+				}
+				if (!filter)
+				{
+					printf("%02x\e[33m%c", data, isAcked);
+				}
+			}
 		}
 	}
   /* USER CODE END 3 */
@@ -198,9 +213,9 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
   RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV1;
-  RCC_OscInitStruct.PLL.PLLN = 8;
+  RCC_OscInitStruct.PLL.PLLN = 12;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-  RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
+  RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV4;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
