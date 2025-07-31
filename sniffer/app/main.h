@@ -49,10 +49,10 @@
 
 /* Private define ------------------------------------------------------------*/
 
-#define SCL_IT_Pin GPIO_PIN_10
+#define SCL_IT_Pin GPIO_PIN_8
 #define SCL_IT_GPIO_Port GPIOB
 #define SCL_IT_EXTI_IRQn EXTI4_15_IRQn
-#define SDA_IT_Pin GPIO_PIN_11
+#define SDA_IT_Pin GPIO_PIN_9
 #define SDA_IT_GPIO_Port GPIOB
 #define SDA_IT_EXTI_IRQn EXTI4_15_IRQn
 

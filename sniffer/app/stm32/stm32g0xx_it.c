@@ -24,6 +24,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "buffer.h"
+#include "main.h"
 #include <stdio.h>
 /* USER CODE END Includes */
 
@@ -159,17 +160,16 @@ void EXTI4_15_IRQHandler(void)
 {
 	static uint16_t pendingData = 0;
 	static int dataLeft = 1;
-    GPIOC->BSRR = (uint32_t)GPIO_PIN_13;
 
-	if (__HAL_GPIO_EXTI_GET_RISING_IT(GPIO_PIN_10) != 0x00u)
+	if (__HAL_GPIO_EXTI_GET_RISING_IT(SCL_IT_Pin) != 0x00u)
 	{
 		// SCL only configured for rising, and means data should be read
-		__HAL_GPIO_EXTI_CLEAR_RISING_IT(GPIO_PIN_10);
+		__HAL_GPIO_EXTI_CLEAR_RISING_IT(SCL_IT_Pin);
 
 		dataLeft--;
 
 		pendingData <<= 1;
-		pendingData |= ((GPIOB->IDR & GPIO_PIN_11) != 0x00);
+		pendingData |= ((SDA_IT_GPIO_Port->IDR & SDA_IT_Pin) != 0x00);
 
 		if (dataLeft == 0)
 		{
@@ -181,13 +181,13 @@ void EXTI4_15_IRQHandler(void)
 			dataLeft = 9;
 		}
 	} // Unlikely to get both at once, optimize to exit faster
-	else if (__HAL_GPIO_EXTI_GET_RISING_IT(GPIO_PIN_11) != 0x00u)
+	else if (__HAL_GPIO_EXTI_GET_RISING_IT(SDA_IT_Pin) != 0x00u)
 	{
-		__HAL_GPIO_EXTI_CLEAR_RISING_IT(GPIO_PIN_11);
-		if (((GPIOB->IDR & GPIO_PIN_10) == 0))
+		__HAL_GPIO_EXTI_CLEAR_RISING_IT(SDA_IT_Pin);
+		if (((SCL_IT_GPIO_Port->IDR & SCL_IT_Pin) == 0))
 		{
 			// Nothing interesting
-			goto exit;
+			return;
 		}
 
 		// STOP
@@ -196,11 +196,11 @@ void EXTI4_15_IRQHandler(void)
 	else // Assume falling SDA (only thing left)
 	{
 		// Falling
-		__HAL_GPIO_EXTI_CLEAR_FALLING_IT(GPIO_PIN_11);
-		if ((GPIOB->IDR & GPIO_PIN_10) == 0)
+		__HAL_GPIO_EXTI_CLEAR_FALLING_IT(SDA_IT_Pin);
+		if ((SCL_IT_GPIO_Port->IDR & SCL_IT_Pin) == 0)
 		{
 			// Nothing interesting
-			goto exit;
+			return;
 		}
 
 		// START
@@ -210,9 +210,18 @@ void EXTI4_15_IRQHandler(void)
 		dataLeft = 9;
 		pendingData = 0;
 	}
+}
 
-exit:
-    GPIOC->BRR = (uint32_t)GPIO_PIN_13;
+extern SMBUS_HandleTypeDef hsmbus1;
+
+void I2C1_IRQHandler(void)
+{
+  if (hsmbus1.Instance->ISR & (SMBUS_FLAG_BERR | SMBUS_FLAG_ARLO | SMBUS_FLAG_OVR | SMBUS_FLAG_TIMEOUT | SMBUS_FLAG_ALERT | SMBUS_FLAG_PECERR)) {
+    HAL_SMBUS_ER_IRQHandler(&hsmbus1);
+  } else {
+    HAL_SMBUS_EV_IRQHandler(&hsmbus1);
+  }
+
 }
 
 /* USER CODE END 1 */

@@ -43,10 +43,13 @@
 #include <string.h>
 #include <stdio.h>
 #include "buffer.h"
+#include "stm32g0xx_hal_gpio.h"
+#include "stm32g0xx_hal_smbus.h"
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
 UART_HandleTypeDef huart1;
+SMBUS_HandleTypeDef hsmbus1;
 volatile uint16_t buffer[I2C_BUFFER_SIZE];
 volatile uint16_t bufferPos = 0;   // the current writing position inside the buffer
 volatile uint16_t bufferStart = 0; // the current reading position inside the buffer
@@ -59,6 +62,7 @@ volatile uint16_t bufferStart = 0; // the current reading position inside the bu
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART1_UART_Init(void);
+static void MX_I2C1_SMBUS_Init(void);
 
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
@@ -111,6 +115,7 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART1_UART_Init();
+  MX_I2C1_SMBUS_Init();
   /* USER CODE BEGIN 2 */
 
   char ch = 'a';
@@ -133,8 +138,9 @@ int main(void)
 
   bool filter = true;
   bool isStart = false;
+  bool i2cStarted = false;
 
-//   uint32_t oldTimer = HAL_GetTick();
+   uint32_t oldTimer = HAL_GetTick();
 
   setbuf(stdout, NULL); // Disable flushing; This might make the code slower, but makes sure everything is sent without
   	  	  	  	  	  	// having to wait for a newline
@@ -145,6 +151,7 @@ int main(void)
 	while (1)
 	{
 		if (bufferPos != bufferStart) { // positive modulo - distance left to cover
+			i2cStarted = true;
 			uint8_t data = (buffer[bufferStart] >> 1) & 0x00ff;
 			bool start_evt = buffer[bufferStart] & 0x0400;
 			bool stop_evt = buffer[bufferStart] & 0x0200;
@@ -184,6 +191,32 @@ int main(void)
 					printf("%02x\e[33m%c", data, isAcked);
 				}
 			}
+
+			// reset timer
+			oldTimer = HAL_GetTick();
+		}
+
+		if (i2cStarted && HAL_GetTick() > oldTimer + 10000)
+		{
+			uint8_t reg = 0x78;
+			uint8_t result = 0;
+			i2cStarted = false;
+			// Been quiet for 10ms, try talking to the conexant
+			if (HAL_SMBUS_Master_Transmit_IT(&hsmbus1, 0x8a, &reg, 1, SMBUS_FIRST_AND_LAST_FRAME_NO_PEC) != HAL_OK)
+			{
+				printf("ERROR: Couldn't transmit register byte\r\n");
+				continue;
+			}
+			while(HAL_SMBUS_GetState(&hsmbus1) != HAL_SMBUS_STATE_READY);
+
+			if (HAL_SMBUS_Master_Receive_IT(&hsmbus1, 0x8a, &result, 1, SMBUS_FIRST_AND_LAST_FRAME_NO_PEC) != HAL_OK)
+			{
+				printf("ERROR: Couldn't receive result byte\r\n");
+				continue;
+			}
+			while(HAL_SMBUS_GetState(&hsmbus1) != HAL_SMBUS_STATE_READY);
+
+			printf("Got result 0x%x\r\n", result);
 		}
 	}
   /* USER CODE END 3 */
@@ -234,7 +267,51 @@ void SystemClock_Config(void)
     Error_Handler();
   }
 
-//   HAL_RCC_MCOConfig(RCC_MCO1, RCC_MCO1SOURCE_SYSCLK, RCC_MCODIV_1);
+}
+
+/**
+  * @brief I2C1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C1_SMBUS_Init(void)
+{
+
+  /* USER CODE BEGIN I2C1_Init 0 */
+
+  /* USER CODE END I2C1_Init 0 */
+
+  /* USER CODE BEGIN I2C1_Init 1 */
+
+  /* USER CODE END I2C1_Init 1 */
+  hsmbus1.Instance = I2C1;
+  hsmbus1.Init.Timing = 0x10805DEF;
+  hsmbus1.Init.AnalogFilter = SMBUS_ANALOGFILTER_ENABLE;
+  hsmbus1.Init.OwnAddress1 = 0x36;
+  hsmbus1.Init.AddressingMode = SMBUS_ADDRESSINGMODE_7BIT;
+  hsmbus1.Init.DualAddressMode = SMBUS_DUALADDRESS_DISABLE;
+  hsmbus1.Init.OwnAddress2 = 0;
+  hsmbus1.Init.OwnAddress2Masks = SMBUS_OA2_NOMASK;
+  hsmbus1.Init.GeneralCallMode = SMBUS_GENERALCALL_DISABLE;
+  hsmbus1.Init.NoStretchMode = SMBUS_NOSTRETCH_DISABLE;
+  hsmbus1.Init.PacketErrorCheckMode = SMBUS_PEC_DISABLE;
+  hsmbus1.Init.PeripheralMode = SMBUS_PERIPHERAL_MODE_SMBUS_SLAVE;
+  hsmbus1.Init.SMBusTimeout = 0x00008249;
+  if (HAL_SMBUS_Init(&hsmbus1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Digital filter
+  */
+  if (HAL_SMBUS_ConfigDigitalFilter(&hsmbus1, 0) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C1_Init 2 */
+
+  /* USER CODE END I2C1_Init 2 */
+
 }
 
 /* USART1 init function */
@@ -259,6 +336,7 @@ static void MX_USART1_UART_Init(void)
   }
 }
 
+
 /** Configure pins as
         * Analog
         * Input
@@ -268,7 +346,6 @@ static void MX_USART1_UART_Init(void)
 */
 static void MX_GPIO_Init(void)
 {
-
   GPIO_InitTypeDef GPIO_InitStruct;
 
   /* GPIO Ports Clock Enable */
@@ -286,30 +363,25 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-//   /*Configure GPIO pin : PA8 */
-//   GPIO_InitStruct.Pin = GPIO_PIN_8;
-//   GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-//   GPIO_InitStruct.Pull = GPIO_NOPULL;
-//   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-//   GPIO_InitStruct.Alternate = GPIO_AF0_MCO;
-//   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
   /*Configure GPIO pin : SCL_IT_Pin */
   GPIO_InitStruct.Pin = SCL_IT_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_OD | EXTI_IT | TRIGGER_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  GPIO_InitStruct.Alternate = GPIO_AF6_I2C1;
   HAL_GPIO_Init(SCL_IT_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : SDA_IT_Pin */
   GPIO_InitStruct.Pin = SDA_IT_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_OD | EXTI_IT | TRIGGER_RISING | TRIGGER_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  GPIO_InitStruct.Alternate = GPIO_AF6_I2C1;
   HAL_GPIO_Init(SDA_IT_GPIO_Port, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI4_15_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI4_15_IRQn);
-
 }
 
 /* USER CODE BEGIN 4 */

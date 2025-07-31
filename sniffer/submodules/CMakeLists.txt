@@ -28,5 +28,7 @@ target_sources(${APP_NAME} PRIVATE
   "${CMAKE_CURRENT_LIST_DIR}/stm32g0xx-hal-driver/Src/stm32g0xx_hal_exti.c"
   "${CMAKE_CURRENT_LIST_DIR}/stm32g0xx-hal-driver/Src/stm32g0xx_hal_uart.c"
   "${CMAKE_CURRENT_LIST_DIR}/stm32g0xx-hal-driver/Src/stm32g0xx_hal_uart_ex.c"
+  "${CMAKE_CURRENT_LIST_DIR}/stm32g0xx-hal-driver/Src/stm32g0xx_hal_smbus.c"
+  "${CMAKE_CURRENT_LIST_DIR}/stm32g0xx-hal-driver/Src/stm32g0xx_hal_smbus_ex.c"
 )
 
